@@ -1,7 +1,7 @@
 name: mausberry-switch
 arch: armhf
 platform: linux
-version: v0.9.3
+version: v0.9.4
 section: default
 maintainer: Tom Richards <tom@tomrichards.net>
 description: GPIO monitoring daemon for Mausberry switches using libgpiod.

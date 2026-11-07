@@ -33,7 +33,12 @@ Zielsystem ist ein Raspberry Pi mit Volumio 4 (Debian 12 Bookworm, armhf).
   `gh release edit` setzen.
 - Änderungen am Daemon kann nur der Nutzer auf der Hardware testen
   (Raspberry Pi 2 Model B). Solche Releases zuerst als Pre-Release
-  veröffentlichen und erst nach seiner Rückmeldung auf „Latest“ setzen.
+  veröffentlichen und erst nach erfolgreichem Hardware-Test auf „Latest“
+  setzen.
+- `configure` braucht `--sysconfdir=/etc`. Mit `--prefix=/usr` allein wird
+  `SYSCONFDIR` zu `/usr/etc`, der Daemon findet `/etc/mausberry-switch.conf`
+  nicht und läuft still mit Standardwerten (Fehler bis v0.9.3). Der
+  CI-Schritt „Check config path“ prüft das im Binary.
 - Die Version in `AC_INIT` (`configure.ac`) wird nicht mitgezogen; maßgeblich
   für das Paket ist `nfpm.yaml`.
 - Release-Notes auf Deutsch (Gliederung wie in v0.9.1: „Was ist neu“,
