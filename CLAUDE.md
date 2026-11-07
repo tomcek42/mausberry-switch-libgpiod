@@ -44,5 +44,3 @@ Zielsystem ist ein Raspberry Pi mit Volumio 4 (Debian 12 Bookworm, armhf).
 
 - Der Job `lint` prüft `src/*.c` mit `clang-format --dry-run --Werror`
   (LLVM-Defaultstil). Vor dem Commit formatieren, sonst schlägt CI fehl.
-- `Makefile.am` listet `autogen.sh` in `EXTRA_DIST`, die Datei gibt es
-  nicht – `make dist` schlägt deshalb fehl. Für den Paketbau egal.

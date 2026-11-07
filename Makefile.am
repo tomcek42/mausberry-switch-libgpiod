@@ -7,5 +7,4 @@ SUBDIRS = src tests
 EXTRA_DIST =		\
 	LICENSE		\
 	README.md	\
-	autogen.sh	\
 	config.h

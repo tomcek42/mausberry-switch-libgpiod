@@ -78,6 +78,9 @@ jobs:
       - name: Test
         run: make check
 
+      - name: Dist
+        run: make dist
+
   build:
     runs-on: ubuntu-latest
     container: debian:bookworm
