@@ -226,8 +226,7 @@ static int monitor(struct gpiod_line *input_line, int sig_fd,
     /* High = switch turned off */
     if (value == 1) {
       if (cfg->delay > 0)
-        printf("Switch turned off, shutting down in %d seconds\n",
-               cfg->delay);
+        printf("Switch turned off, shutting down in %d seconds\n", cfg->delay);
 
       /* Wait for the delay without watching the line; edges stay queued */
       res = wait_for(-1, sig_fd, delay_ms);
