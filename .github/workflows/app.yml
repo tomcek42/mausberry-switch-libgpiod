@@ -1,5 +1,8 @@
 name: App
-on: [push]
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
 
 jobs:
   scan:
@@ -125,10 +128,33 @@ jobs:
       - name: Inspect package
         run: |
           ar x mausberry-switch_*.deb
+          tar xzf control.tar.gz ./control
+          cat control
           tar tvf data.tar.gz
 
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: mausberry-switch_0.9.1_armhf.deb
-          path: mausberry-switch_0.9.1_armhf.deb
+          name: mausberry-switch-deb
+          path: mausberry-switch_*_armhf.deb
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [scan, lint, test, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: mausberry-switch-deb
+
+      - name: Attach package to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes ""
+          gh release upload "$GITHUB_REF_NAME" mausberry-switch_*_armhf.deb --clobber

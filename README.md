@@ -35,14 +35,14 @@ sudo make install
 
 ## Installing
 
-Download the [latest release (v0.9.1)][latest-release] and install it directly on your Pi:
+Download the [latest release (v0.9.2)][latest-release] and install it directly on your Pi:
 
 ```bash
 # Download
-wget https://github.com/tomcek42/mausberry-switch-libgpiod/releases/download/v0.9.1/mausberry-switch_0.9.1_armhf.deb
+wget https://github.com/tomcek42/mausberry-switch-libgpiod/releases/download/v0.9.2/mausberry-switch_0.9.2_armhf.deb
 
 # Install
-sudo dpkg -i mausberry-switch_0.9.1_armhf.deb
+sudo dpkg -i mausberry-switch_0.9.2_armhf.deb
 sudo apt-get -f install
 ```
 
