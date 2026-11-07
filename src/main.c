@@ -235,6 +235,10 @@ static int monitor(struct gpiod_line *input_line, int sig_fd,
       if (res == WAIT_ERROR)
         return 1;
 
+      /*
+       * The Mausberry switch latches OUT high once turned off, so a drop
+       * back to low can only be a glitch on the line.
+       */
       value = gpiod_line_get_value(input_line);
       if (value < 0) {
         perror("Failed to read switch state");
@@ -250,8 +254,7 @@ static int monitor(struct gpiod_line *input_line, int sig_fd,
         printf("Waiting for system shutdown\n");
         return wait_for(-1, sig_fd, -1) == WAIT_SIGNAL ? 0 : 1;
       }
-      if (cfg->delay > 0)
-        printf("Switch turned back on, shutdown cancelled\n");
+      printf("Switch signal dropped back to low, ignoring glitch\n");
     }
 
     res = wait_for(line_fd, sig_fd, -1);

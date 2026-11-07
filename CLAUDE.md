@@ -58,6 +58,10 @@ Zielsystem ist ein Raspberry Pi mit Volumio 4 (Debian 12 Bookworm, armhf).
 - Absichtlich ohne Timer: Der Prozess schläft in `poll()` auf dem
   GPIO-Event-fd und einem `signalfd`. Keine Timeouts zum Abfragen eines
   `running`-Flags wieder einbauen.
+- Die Mausberry-Platine hält OUT nach dem Ausschalten high, auch wenn der
+  Schalter wieder eingeschaltet wird (am Pi gemessen). Ein Abbruch während
+  `Delay` ist deshalb unmöglich; die erneute Prüfung danach fängt nur
+  Störimpulse ab.
 - Ausgewertet wird der Pegel der Leitung, nicht einzelne Flanken. Nur so wird
   ein beim Start bereits ausgeschalteter Schalter erkannt.
 - Nach erfolgreichem Shutdown-Befehl wartet der Daemon auf SIGTERM, statt

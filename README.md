@@ -35,15 +35,15 @@ sudo make install
 
 ## Installing
 
-Download the [latest release (v0.9.4)][latest-release] and install it directly on your Pi:
+Download the [latest release (v0.9.5)][latest-release] and install it directly on your Pi:
 
 ```bash
 # Download
-wget https://github.com/tomcek42/mausberry-switch-libgpiod/releases/download/v0.9.4/mausberry-switch_0.9.4_armhf.deb
+wget https://github.com/tomcek42/mausberry-switch-libgpiod/releases/download/v0.9.5/mausberry-switch_0.9.5_armhf.deb
 
 # Install (apt resolves the libgpiod2 dependency automatically)
 sudo apt-get update
-sudo apt install ./mausberry-switch_0.9.4_armhf.deb
+sudo apt install ./mausberry-switch_0.9.5_armhf.deb
 ```
 
 Note the `./` in front of the file name; without it apt looks for a package of that name in the repositories. Plain `dpkg -i` does not install missing dependencies. If you already used it, run `sudo apt-get update && sudo apt-get -f install` to fetch `libgpiod2` and finish the installation.
