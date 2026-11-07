@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+# Enable and (re)start the service on install and upgrade
+if [ "$1" = "configure" ]; then
+  systemctl enable mausberry-switch.service >/dev/null
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl restart mausberry-switch.service ||
+      echo "mausberry-switch: service failed to start, see journalctl -u mausberry-switch" >&2
+  fi
+fi

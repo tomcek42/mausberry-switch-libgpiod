@@ -5,11 +5,17 @@
  * Uses libgpiod for GPIO access.
  */
 
+#include <errno.h>
 #include <gpiod.h>
+#include <limits.h>
+#include <poll.h>
 #include <signal.h>
+#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/signalfd.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #ifndef SYSCONFDIR
@@ -25,6 +31,12 @@
 #define DEFAULT_DELAY 0
 #define DEFAULT_SHUTDOWN_CMD "systemctl poweroff"
 #define GPIO_CHIP "gpiochip0"
+#define CONSUMER "mausberry-switch"
+
+/* The switch must stay off this long before we act on it (debounce) */
+#define DEBOUNCE_MS 100
+
+extern char **environ;
 
 struct config {
   int pin_out;
@@ -33,30 +45,7 @@ struct config {
   char shutdown_cmd[MAX_LINE];
 };
 
-static volatile sig_atomic_t running = 1;
-
-static void handle_signal(int sig) {
-  (void)sig;
-  running = 0;
-}
-
-static int install_signal_handlers(void) {
-  struct sigaction sa;
-  memset(&sa, 0, sizeof(sa));
-  sa.sa_handler = handle_signal;
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-
-  if (sigaction(SIGINT, &sa, NULL) == -1) {
-    perror("Failed to install SIGINT handler");
-    return -1;
-  }
-  if (sigaction(SIGTERM, &sa, NULL) == -1) {
-    perror("Failed to install SIGTERM handler");
-    return -1;
-  }
-  return 0;
-}
+enum wait_result { WAIT_ERROR, WAIT_TIMEOUT, WAIT_EVENT, WAIT_SIGNAL };
 
 static void trim(char *s) {
   char *end;
@@ -66,6 +55,20 @@ static void trim(char *s) {
   while (end > s &&
          (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t'))
     *end-- = '\0';
+}
+
+/* Parse a non-negative integer up to max; keep *out unchanged on error. */
+static void parse_int(const char *key, const char *val, int max, int *out) {
+  char *end;
+  long n;
+
+  errno = 0;
+  n = strtol(val, &end, 10);
+  if (errno != 0 || end == val || *end != '\0' || n < 0 || n > max) {
+    fprintf(stderr, "Invalid value '%s' for %s, using %d.\n", val, key, *out);
+    return;
+  }
+  *out = (int)n;
 }
 
 static void load_config(struct config *cfg) {
@@ -116,14 +119,14 @@ static void load_config(struct config *cfg) {
 
     if (strcmp(section, "Pins") == 0) {
       if (strcmp(key, "Out") == 0)
-        cfg->pin_out = atoi(val);
+        parse_int("Out", val, INT_MAX, &cfg->pin_out);
       else if (strcmp(key, "In") == 0)
-        cfg->pin_in = atoi(val);
+        parse_int("In", val, INT_MAX, &cfg->pin_in);
     } else if (strcmp(section, "Config") == 0) {
-      if (strcmp(key, "ShutdownCommand") == 0)
+      if (strcmp(key, "ShutdownCommand") == 0 && *val != '\0')
         snprintf(cfg->shutdown_cmd, MAX_LINE, "%s", val);
       else if (strcmp(key, "Delay") == 0)
-        cfg->delay = atoi(val);
+        parse_int("Delay", val, INT_MAX / 1000, &cfg->delay);
     }
   }
 
@@ -139,22 +142,168 @@ static void print_config(const struct config *cfg) {
   printf("== End Configuration ==\n\n");
 }
 
+/*
+ * Sleep in poll() until a GPIO event, a termination signal or the timeout
+ * (-1 = none). A negative line_fd waits for signals only. Without a timeout
+ * the process does not wake up at all until something happens.
+ */
+static enum wait_result wait_for(int line_fd, int sig_fd, int timeout_ms) {
+  struct pollfd pfds[2] = {{.fd = sig_fd, .events = POLLIN},
+                           {.fd = line_fd, .events = POLLIN}};
+  int ret;
+
+  do
+    ret = poll(pfds, 2, timeout_ms);
+  while (ret < 0 && errno == EINTR);
+
+  if (ret < 0) {
+    perror("Failed to wait for events");
+    return WAIT_ERROR;
+  }
+  if (ret == 0)
+    return WAIT_TIMEOUT;
+  if (pfds[0].revents)
+    return WAIT_SIGNAL;
+  return WAIT_EVENT;
+}
+
+/*
+ * Run the shutdown command via /bin/sh. posix_spawn() instead of system(),
+ * because the child must not inherit our blocked SIGTERM/SIGINT.
+ */
+static int run_command(const char *cmd) {
+  posix_spawnattr_t attr;
+  sigset_t empty;
+  pid_t pid;
+  int status;
+  char *argv[] = {"sh", "-c", (char *)cmd, NULL};
+
+  sigemptyset(&empty);
+  posix_spawnattr_init(&attr);
+  posix_spawnattr_setsigmask(&attr, &empty);
+  posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGMASK);
+  errno = posix_spawn(&pid, "/bin/sh", NULL, &attr, argv, environ);
+  posix_spawnattr_destroy(&attr);
+  if (errno != 0) {
+    perror("Failed to execute shutdown command");
+    return -1;
+  }
+
+  while (waitpid(pid, &status, 0) < 0) {
+    if (errno != EINTR) {
+      perror("Failed to wait for shutdown command");
+      return -1;
+    }
+  }
+
+  if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+    fprintf(stderr, "Shutdown command failed (status %d)\n", status);
+    return -1;
+  }
+  return 0;
+}
+
+/*
+ * Main loop. Acts on the level of the switch line rather than on single
+ * edges, so a switch that is already off at startup and edges lost while
+ * the queue was full are handled as well.
+ */
+static int monitor(struct gpiod_line *input_line, int sig_fd,
+                   const struct config *cfg) {
+  int line_fd = gpiod_line_event_get_fd(input_line);
+  int delay_ms = cfg->delay > 0 ? cfg->delay * 1000 : DEBOUNCE_MS;
+  struct gpiod_line_event events[16];
+  enum wait_result res;
+  int value;
+
+  for (;;) {
+    value = gpiod_line_get_value(input_line);
+    if (value < 0) {
+      perror("Failed to read switch state");
+      return 1;
+    }
+
+    /* High = switch turned off */
+    if (value == 1) {
+      if (cfg->delay > 0)
+        printf("Switch turned off, shutting down in %d seconds\n",
+               cfg->delay);
+
+      /* Wait for the delay without watching the line; edges stay queued */
+      res = wait_for(-1, sig_fd, delay_ms);
+      if (res == WAIT_SIGNAL)
+        return 0;
+      if (res == WAIT_ERROR)
+        return 1;
+
+      value = gpiod_line_get_value(input_line);
+      if (value < 0) {
+        perror("Failed to read switch state");
+        return 1;
+      }
+      if (value == 1) {
+        printf("Executing: %s\n", cfg->shutdown_cmd);
+        /* On failure exit non-zero, so systemd restarts us and we retry */
+        if (run_command(cfg->shutdown_cmd) < 0)
+          return 1;
+
+        /* Keep holding the IN line high until systemd stops us */
+        printf("Waiting for system shutdown\n");
+        return wait_for(-1, sig_fd, -1) == WAIT_SIGNAL ? 0 : 1;
+      }
+      if (cfg->delay > 0)
+        printf("Switch turned back on, shutdown cancelled\n");
+    }
+
+    res = wait_for(line_fd, sig_fd, -1);
+    if (res == WAIT_SIGNAL)
+      return 0;
+    if (res == WAIT_ERROR)
+      return 1;
+
+    /* Discard queued edges, only the current level matters */
+    if (gpiod_line_event_read_multiple(input_line, events, 16) < 0) {
+      perror("Failed to read line events");
+      return 1;
+    }
+  }
+}
+
 int main(void) {
   struct gpiod_chip *chip = NULL;
   struct gpiod_line *input_line = NULL;
   struct gpiod_line *output_line = NULL;
   struct config cfg;
+  sigset_t mask;
+  int sig_fd = -1;
   int ret;
-  int exit_code = 0;
-  struct timespec ts = {1, 0}; /* 1 second timeout */
+  int exit_code = 1;
+
+  /* stdout is a pipe under systemd; flush every line to the journal */
+  setvbuf(stdout, NULL, _IOLBF, 0);
 
   /* Load configuration */
   load_config(&cfg);
   print_config(&cfg);
 
-  /* Install signal handlers */
-  if (install_signal_handlers() < 0)
+  if (cfg.pin_out == cfg.pin_in) {
+    fprintf(stderr, "Pins OUT and IN must differ.\n");
     return 1;
+  }
+
+  /* Receive SIGINT/SIGTERM through a file descriptor that poll() watches */
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGINT);
+  sigaddset(&mask, SIGTERM);
+  if (sigprocmask(SIG_BLOCK, &mask, NULL) < 0) {
+    perror("Failed to block signals");
+    return 1;
+  }
+  sig_fd = signalfd(-1, &mask, SFD_CLOEXEC);
+  if (sig_fd < 0) {
+    perror("Failed to create signalfd");
+    return 1;
+  }
 
   printf("Mausberry switch daemon starting\n");
 
@@ -162,83 +311,48 @@ int main(void) {
   chip = gpiod_chip_open_by_name(GPIO_CHIP);
   if (!chip) {
     perror("Failed to open GPIO chip");
-    return 1;
+    goto cleanup;
   }
 
-  /* Get the input and output lines */
+  if ((unsigned int)cfg.pin_out >= gpiod_chip_num_lines(chip) ||
+      (unsigned int)cfg.pin_in >= gpiod_chip_num_lines(chip)) {
+    fprintf(stderr, "Pin out of range, %s has %u lines.\n", GPIO_CHIP,
+            gpiod_chip_num_lines(chip));
+    goto cleanup;
+  }
+
+  /* The switch's OUT lead is our input, its IN lead our output */
   input_line = gpiod_chip_get_line(chip, cfg.pin_out);
   output_line = gpiod_chip_get_line(chip, cfg.pin_in);
   if (!input_line || !output_line) {
     perror("Failed to get GPIO lines");
-    exit_code = 1;
     goto cleanup;
   }
 
-  /* Configure the input line with edge detection */
-  ret = gpiod_line_request_both_edges_events(input_line, "mausberry-switch");
+  /*
+   * Pull-down keeps an unconnected input low, so a missing switch never
+   * triggers a shutdown. Kernels before 5.5 cannot set the bias; fall back
+   * to the hardware default then.
+   */
+  ret = gpiod_line_request_both_edges_events_flags(
+      input_line, CONSUMER, GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_DOWN);
+  if (ret < 0)
+    ret = gpiod_line_request_both_edges_events(input_line, CONSUMER);
   if (ret < 0) {
     perror("Failed to request line events");
-    exit_code = 1;
     goto cleanup;
   }
 
-  /* Configure the output line */
-  ret = gpiod_line_request_output(output_line, "mausberry-switch", 0);
+  /* Drive high right away to signal the switch that the system is running */
+  ret = gpiod_line_request_output(output_line, CONSUMER, 1);
   if (ret < 0) {
     perror("Failed to request output line");
-    exit_code = 1;
     goto cleanup;
   }
-
-  /* Set output high to signal the switch that the system is running */
-  gpiod_line_set_value(output_line, 1);
 
   printf("Mausberry switch monitoring started\n");
 
-  while (running) {
-    struct gpiod_line_event event;
-
-    /* Wait for an event with timeout */
-    ret = gpiod_line_event_wait(input_line, &ts);
-
-    if (ret < 0) {
-      if (!running)
-        break;
-      perror("Error waiting for event");
-      exit_code = 1;
-      break;
-    } else if (ret == 0) {
-      /* Timeout - loop and check running flag */
-      continue;
-    }
-
-    /* Read the event */
-    ret = gpiod_line_event_read(input_line, &event);
-    if (ret < 0) {
-      if (!running)
-        break;
-      perror("Failed to read line event");
-      exit_code = 1;
-      break;
-    }
-
-    /* Rising edge = switch activated */
-    if (event.event_type == GPIOD_LINE_EVENT_RISING_EDGE) {
-      printf("Switch activated, shutting down in %d seconds\n", cfg.delay);
-      if (cfg.delay > 0)
-        sleep((unsigned int)cfg.delay);
-
-      if (!running)
-        break;
-
-      printf("Executing: %s\n", cfg.shutdown_cmd);
-      if (system(cfg.shutdown_cmd) == -1) {
-        perror("Failed to execute shutdown command");
-        exit_code = 1;
-      }
-      break;
-    }
-  }
+  exit_code = monitor(input_line, sig_fd, &cfg);
 
 cleanup:
   if (input_line)
@@ -247,6 +361,7 @@ cleanup:
     gpiod_line_release(output_line);
   if (chip)
     gpiod_chip_close(chip);
+  close(sig_fd);
 
   printf("Mausberry switch daemon stopping\n");
 

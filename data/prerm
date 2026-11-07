@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+# Stop and disable the service only on removal; upgrades restart it in postinst
+if [ "$1" = "remove" ]; then
+  if [ -d /run/systemd/system ]; then
+    systemctl stop mausberry-switch.service || true
+  fi
+  systemctl disable mausberry-switch.service >/dev/null || true
+fi

@@ -131,6 +131,7 @@ jobs:
       - name: Inspect package
         run: |
           ar x mausberry-switch_*.deb
+          tar tvf control.tar.gz
           tar xzf control.tar.gz ./control
           cat control
           tar tvf data.tar.gz

@@ -1,14 +1,14 @@
 [Unit]
 Description=Mausberry switch GPIO monitoring daemon
 After=local-fs.target
+# Retry forever: a failed shutdown command is retried after each restart
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 ExecStart=/usr/bin/mausberry-switch
 Restart=on-failure
 RestartSec=5s
-StartLimitBurst=3
-StartLimitIntervalSec=30s
 
 # Security hardening
 NoNewPrivileges=yes
