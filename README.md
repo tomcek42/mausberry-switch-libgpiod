@@ -41,10 +41,12 @@ Download the [latest release (v0.9.2)][latest-release] and install it directly o
 # Download
 wget https://github.com/tomcek42/mausberry-switch-libgpiod/releases/download/v0.9.2/mausberry-switch_0.9.2_armhf.deb
 
-# Install
-sudo dpkg -i mausberry-switch_0.9.2_armhf.deb
-sudo apt-get -f install
+# Install (apt resolves the libgpiod2 dependency automatically)
+sudo apt-get update
+sudo apt install ./mausberry-switch_0.9.2_armhf.deb
 ```
+
+Note the `./` in front of the file name; without it apt looks for a package of that name in the repositories. Plain `dpkg -i` does not install missing dependencies. If you already used it, run `sudo apt-get update && sudo apt-get -f install` to fetch `libgpiod2` and finish the installation.
 
 ## Usage
 
