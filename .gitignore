@@ -50,3 +50,6 @@ debian-binary
 
 # Local Claude Code settings
 .claude/settings.local.json
+
+# Volumio plugin settings file (not an autotools artifact)
+!volumio-plugin/**/config.json

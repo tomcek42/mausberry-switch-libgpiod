@@ -2,3 +2,4 @@ data/postinst text eol=lf
 data/prerm text eol=lf
 data/postrm text eol=lf
 script/* text eol=lf
+volumio-plugin/**/*.sh text eol=lf

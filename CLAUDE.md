@@ -76,3 +76,19 @@ Release notes are structured like v0.9.5: "What's new", "Installation",
 
 - The `lint` job checks `src/*.c` with `clang-format --dry-run --Werror`
   (LLVM default style). Format before committing, or CI fails.
+
+## Volumio plugin (`volumio-plugin/mausberry_switch/`)
+
+- Published by copying the folder into a fork of
+  `volumio/volumio-plugins-sources-bookworm` and opening a PR there; the user
+  runs `volumio plugin install`/`submit` on the Pi.
+- `install.sh` installs a pinned daemon release (`VERSION=`). For a new
+  daemon release bump `VERSION` in `install.sh`, `version` and `changelog`
+  in `package.json`. Without a new `package.json` version the store does
+  not offer the update.
+- The settings page edits only `Out`, `In` and `Delay` in
+  `/etc/mausberry-switch.conf` in place. `ShutdownCommand` is deliberately
+  not exposed (root command editable from the web UI).
+- Enabling/disabling the plugin runs `systemctl enable/disable --now`.
+- `.gitignore` ignores `config.*` for autotools; `config.json` of the plugin
+  is re-included with a negation rule.
