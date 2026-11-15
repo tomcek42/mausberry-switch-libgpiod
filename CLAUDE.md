@@ -92,3 +92,16 @@ Release notes are structured like v0.9.5: "What's new", "Installation",
 - Enabling/disabling the plugin runs `systemctl enable/disable --now`.
 - `.gitignore` ignores `config.*` for autotools; `config.json` of the plugin
   is re-included with a negation rule.
+- Volumio runs `install.sh`/`uninstall.sh` as
+  `echo volumio | sudo -S sh <script> > /tmp/installog`, i.e. with the
+  hard-coded default password `volumio` and via `sh` (the executable bit is
+  lost in the zip anyway). If the user's password was changed, every plugin
+  install fails with a bare "Error"; the journal shows
+  `1 incorrect password attempt`. The line `plugininstallend` is swallowed
+  by Volumio as end marker and never appears in the output.
+- `index.js` runs as user `volumio` and may only use commands on Volumio's
+  NOPASSWD sudoers list, always with `sudo -n` (e.g. `/usr/bin/tee`,
+  `/bin/systemctl`). `/usr/bin/install` is not on the list, which is why the
+  config is written via `sudo tee`.
+- `volumio plugin submit` refuses to run with any uncommitted change in the
+  fork (e.g. a deleted or regenerated `package-lock.json`).
