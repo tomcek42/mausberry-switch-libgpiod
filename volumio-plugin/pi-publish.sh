@@ -85,7 +85,8 @@ ok "plugin version $VERSION"
 step "3. volumio plugin install"
 cd "$PLUGIN_DIR"
 volumio plugin install | tee "$WORK/install.log"
-grep -q plugininstallend "$WORK/install.log" && ok "plugininstallend seen" || fail "plugininstallend missing"
+# Volumio swallows the "plugininstallend" line (end marker), so check its own success message.
+grep -q "Successfully Installed" "$WORK/install.log" && ok "Volumio reports successful install" || fail "Volumio did not report a successful install"
 
 dpkg -s mausberry-switch 2>/dev/null | grep -q '^Status: install ok installed' \
   && ok "package installed: $(dpkg-query -W -f='${Version}' mausberry-switch)" \
