@@ -89,7 +89,12 @@ Release notes are structured like v0.9.5: "What's new", "Installation",
 - The settings page edits only `Out`, `In` and `Delay` in
   `/etc/mausberry-switch.conf` in place. `ShutdownCommand` is deliberately
   not exposed (root command editable from the web UI).
-- Enabling/disabling the plugin runs `systemctl enable/disable --now`.
+- Enabling/disabling the plugin runs `systemctl enable/disable --now`. The
+  `.deb` postinst enables the service by itself, so `install.sh` disables it
+  again: Volumio's checklist forbids any effect before `onStart`.
+- `plugin_type` is `system_hardware` (GPIO peripherals); `system_controller`
+  is for Volumio core plugins. The category is also part of the `UIConfig.json`
+  endpoint and of the install path `/data/plugins/<category>/`.
 - `.gitignore` ignores `config.*` for autotools; `config.json` of the plugin
   is re-included with a negation rule.
 - Volumio runs `install.sh`/`uninstall.sh` as

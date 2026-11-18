@@ -47,6 +47,11 @@ if dpkg -s mausberry-switch >/dev/null 2>&1; then
   fi
 fi
 
+if [ -d /data/plugins/system_controller/$PLUGIN ]; then
+  echo "  Plugin 1.0.0 is installed under the old category system_controller."
+  pause "UNINSTALL it in the web UI first"
+fi
+
 # --- 2. Clone / update repositories ----------------------------------------
 step "2. Repositories"
 mkdir -p "$WORK"
@@ -92,8 +97,10 @@ dpkg -s mausberry-switch 2>/dev/null | grep -q '^Status: install ok installed' \
   && ok "package installed: $(dpkg-query -W -f='${Version}' mausberry-switch)" \
   || fail "package mausberry-switch not installed"
 dpkg -s libgpiod2 >/dev/null 2>&1 && ok "libgpiod2 installed" || fail "libgpiod2 missing"
-systemctl is-active --quiet mausberry-switch && ok "service active" || fail "service not active"
-[ -d /data/plugins/system_controller/$PLUGIN ] && ok "plugin dir in /data/plugins" || fail "plugin dir missing"
+# The daemon must not run before the plugin is enabled (Volumio checklist).
+systemctl is-active --quiet mausberry-switch && fail "service active before the plugin is enabled" || ok "service not active yet"
+systemctl is-enabled --quiet mausberry-switch && fail "service enabled before the plugin is enabled" || ok "service not enabled yet"
+[ -d /data/plugins/system_hardware/$PLUGIN ] && ok "plugin dir in /data/plugins" || fail "plugin dir missing"
 
 # --- 4. sudo check (used by index.js) --------------------------------------
 step "4. Passwordless sudo"
